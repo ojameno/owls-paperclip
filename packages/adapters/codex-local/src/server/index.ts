@@ -13,6 +13,7 @@ export {
   fetchWithTimeout,
   codexHomeDir,
 } from "./quota.js";
+export type { CodexAuthInfo } from "./quota.js";
 import type { AdapterSessionCodec } from "@paperclipai/adapter-utils";
 
 function readNonEmptyString(value: unknown): string | null {

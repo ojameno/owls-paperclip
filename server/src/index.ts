@@ -33,6 +33,7 @@ import {
   heartbeatService,
   reconcilePersistedRuntimeServicesOnStartup,
   routineService,
+  createCodexPoolService,
 } from "./services/index.js";
 import { createFeedbackTraceShareClientFromConfig } from "./services/feedback-share-client.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
@@ -673,6 +674,19 @@ export async function startServer(): Promise<StartedServer> {
       void runScheduledBackup();
     }, backupIntervalMs);
   }
+
+  const codexPoolService = createCodexPoolService(db);
+  const codexPoolRenewalIntervalMs = 24 * 60 * 60 * 1000;
+  logger.info("Codex pool daily renewal timer enabled (24-hour interval)");
+  setInterval(() => {
+    void codexPoolService.renewExhaustedAccounts()
+      .then(() => {
+        logger.info("Codex pool renewal check completed");
+      })
+      .catch((err) => {
+        logger.error({ err }, "Codex pool renewal check failed");
+      });
+  }, codexPoolRenewalIntervalMs);
   
   // Wait for external adapters to finish loading before accepting requests.
   // Without this, adapter type validation (assertKnownAdapterType) would

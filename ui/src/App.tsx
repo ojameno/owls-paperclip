@@ -36,6 +36,7 @@ import { PluginManager } from "./pages/PluginManager";
 import { PluginSettings } from "./pages/PluginSettings";
 import { AdapterManager } from "./pages/AdapterManager";
 import { PluginPage } from "./pages/PluginPage";
+import { CodexPool } from "./pages/CodexPool";
 import { IssueChatUxLab } from "./pages/IssueChatUxLab";
 import { RunTranscriptUxLab } from "./pages/RunTranscriptUxLab";
 import { OrgChart } from "./pages/OrgChart";
@@ -128,6 +129,7 @@ function boardRoutes() {
       <Route path="company/settings" element={<CompanySettings />} />
       <Route path="company/export/*" element={<CompanyExport />} />
       <Route path="company/import" element={<CompanyImport />} />
+      <Route path="codex-pool" element={<CodexPool />} />
       <Route path="skills/*" element={<CompanySkills />} />
       <Route path="settings" element={<LegacySettingsRedirect />} />
       <Route path="settings/*" element={<LegacySettingsRedirect />} />
@@ -333,6 +335,7 @@ export function App() {
           <Route path="routines" element={<UnprefixedBoardRedirect />} />
           <Route path="routines/:routineId" element={<UnprefixedBoardRedirect />} />
           <Route path="skills/*" element={<UnprefixedBoardRedirect />} />
+          <Route path="codex-pool" element={<UnprefixedBoardRedirect />} />
           <Route path="settings" element={<LegacySettingsRedirect />} />
           <Route path="settings/*" element={<LegacySettingsRedirect />} />
           <Route path="agents" element={<UnprefixedBoardRedirect />} />

@@ -147,4 +147,5 @@ export const queryKeys = {
   adapters: {
     all: ["adapters"] as const,
   },
+  codexPool: (companyId: string) => ["codex-pool", companyId] as const,
 };

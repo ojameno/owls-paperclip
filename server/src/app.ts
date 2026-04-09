@@ -27,6 +27,7 @@ import { sidebarBadgeRoutes } from "./routes/sidebar-badges.js";
 import { instanceSettingsRoutes } from "./routes/instance-settings.js";
 import { llmRoutes } from "./routes/llms.js";
 import { assetRoutes } from "./routes/assets.js";
+import { codexPoolRoutes } from "./routes/codex-pool.js";
 import { accessRoutes } from "./routes/access.js";
 import { pluginRoutes } from "./routes/plugins.js";
 import { adapterRoutes } from "./routes/adapters.js";
@@ -167,6 +168,7 @@ export async function createApp(
   api.use(dashboardRoutes(db));
   api.use(sidebarBadgeRoutes(db));
   api.use(instanceSettingsRoutes(db));
+  api.use(codexPoolRoutes(db));
   const hostServicesDisposers = new Map<string, () => void>();
   const workerManager = createPluginWorkerManager();
   const pluginRegistry = pluginRegistryService(db);

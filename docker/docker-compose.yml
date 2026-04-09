@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:17-alpine
+    container_name: owls-paperclip-db
     environment:
       POSTGRES_USER: paperclip
       POSTGRES_PASSWORD: paperclip
@@ -19,6 +20,8 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+    container_name: owls-paperclip-server
+    image: owls-paperclip-server
     ports:
       - "3100:3100"
     environment:
@@ -28,13 +31,12 @@ services:
       PAPERCLIP_DEPLOYMENT_MODE: "authenticated"
       PAPERCLIP_DEPLOYMENT_EXPOSURE: "private"
       PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://localhost:3100}"
-      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set}"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:-change-me-to-a-random-secret-key-in-production}"
     volumes:
-      - paperclip-data:/paperclip
+      - ./data/paperclip:/paperclip
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   pgdata:
-  paperclip-data:

@@ -43,6 +43,7 @@ import {
   secretService,
   syncInstructionsBundleConfigFromFilePath,
   workspaceOperationService,
+  createCodexPoolService,
 } from "../services/index.js";
 import { conflict, forbidden, notFound, unprocessable } from "../errors.js";
 import { assertBoard, assertCompanyAccess, assertInstanceAdmin, getActorInfo } from "./authz.js";
@@ -801,6 +802,21 @@ export function agentRoutes(db: Db) {
         companyId,
         normalizedAdapterConfig,
       );
+
+      // Inject CODEX_HOME from pool if codex_local and not already set
+      if (type === "codex_local") {
+        const envConfig = (runtimeAdapterConfig.env ?? {}) as Record<string, string>;
+        if (!envConfig.CODEX_HOME) {
+          const poolService = createCodexPoolService(db);
+          const activeAccount = await poolService.getActiveAccount(companyId);
+          if (activeAccount?.codexHomePath) {
+            runtimeAdapterConfig.env = {
+              ...envConfig,
+              CODEX_HOME: activeAccount.codexHomePath,
+            };
+          }
+        }
+      }
 
       const result = await adapter.testEnvironment({
         companyId,

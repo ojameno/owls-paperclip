@@ -12,6 +12,9 @@ data/
 tmp-*
 cli/tmp/
 
+#
+docker/data/
+
 # Scratch/seed scripts (but not scripts/ dir)
 check-*.mjs
 !scripts/check-*.mjs

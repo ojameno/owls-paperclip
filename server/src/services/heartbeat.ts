@@ -28,6 +28,7 @@ import { parseObject, asBoolean, asNumber, appendWithCap, MAX_EXCERPT_BYTES } fr
 import { costService } from "./costs.js";
 import { trackAgentFirstHeartbeat } from "@paperclipai/shared/telemetry";
 import { getTelemetryClient } from "../telemetry.js";
+import { createCodexPoolService } from "./codex-pool.js";
 import { companySkillService } from "./company-skills.js";
 import { budgetService, type BudgetEnforcementScope } from "./budgets.js";
 import { secretService } from "./secrets.js";
@@ -2682,6 +2683,25 @@ export function heartbeatService(db: Db) {
       projectEnv: projectContext?.env ?? null,
       secretsSvc,
     });
+
+    let poolAccountId: string | null = null;
+    const envRecord = parseObject(resolvedConfig.env) as Record<string, string> | undefined;
+    if (agent.adapterType === "codex_local" && !envRecord?.CODEX_HOME) {
+      const poolService = createCodexPoolService(db);
+      const poolAccount = await poolService.getActiveAccount(agent.companyId);
+      if (poolAccount && poolAccount.codexHomePath) {
+        resolvedConfig.env = {
+          ...envRecord,
+          CODEX_HOME: poolAccount.codexHomePath,
+        };
+        poolAccountId = poolAccount.id;
+        logger.info(
+          { agentId: agent.id, accountId: poolAccount.id, codexHomePath: poolAccount.codexHomePath },
+          "Using Codex account from pool",
+        );
+      }
+    }
+
     const runtimeSkillEntries = await companySkills.listRuntimeSkillEntries(agent.companyId);
     const runtimeConfig = {
       ...resolvedConfig,
@@ -3146,6 +3166,22 @@ export function heartbeatService(db: Db) {
         },
         authToken: authToken ?? undefined,
       });
+
+      if (poolAccountId && agent.adapterType === "codex_local") {
+        const isError = adapterResult.exitCode !== 0;
+        const error = isError ? (adapterResult.errorMessage ?? "") : "";
+        const isQuotaError = /quota|limit|exceeded|rate/i.test(error);
+
+        if (isQuotaError) {
+          const poolService = createCodexPoolService(db);
+          await poolService.markAccountExhausted(poolAccountId, agent.companyId);
+          logger.warn(
+            { agentId: agent.id, accountId: poolAccountId, error },
+            "Marked Codex pool account as exhausted due to quota error",
+          );
+        }
+      }
+
       const adapterManagedRuntimeServices = adapterResult.runtimeServices
         ? await persistAdapterManagedRuntimeServices({
             db,
