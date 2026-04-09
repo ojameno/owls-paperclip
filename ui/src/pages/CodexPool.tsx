@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -43,9 +43,29 @@ export function CodexPool() {
     },
   });
 
-  const checkQuotaMutation = useMutation({
-    mutationFn: (accountId: string) => codexPoolApi.checkQuota(selectedCompanyId!, accountId),
-  });
+  // Per-account quota check results
+  type QuotaWindow = { label: string; usedPercent: number | null; resetsAt: string | null };
+  const [quotaResults, setQuotaResults] = useState<Record<string, { hasQuota: boolean; windows: QuotaWindow[]; error?: string }>>({});
+  const [checkingQuotaIds, setCheckingQuotaIds] = useState<Set<string>>(new Set());
+
+  const checkQuota = useCallback(async (accountId: string) => {
+    setCheckingQuotaIds((prev) => new Set(prev).add(accountId));
+    try {
+      const result = await codexPoolApi.checkQuota(selectedCompanyId!, accountId);
+      setQuotaResults((prev) => ({ ...prev, [accountId]: result }));
+    } catch (err) {
+      setQuotaResults((prev) => ({
+        ...prev,
+        [accountId]: { hasQuota: false, windows: [], error: err instanceof Error ? err.message : "Check failed" },
+      }));
+    } finally {
+      setCheckingQuotaIds((prev) => {
+        const next = new Set(prev);
+        next.delete(accountId);
+        return next;
+      });
+    }
+  }, [selectedCompanyId]);
 
   const accounts = poolData?.accounts ?? [];
 
@@ -88,15 +108,29 @@ export function CodexPool() {
               key={account.id}
               account={account}
               onDelete={() => deleteMutation.mutate(account.id)}
-              onCheckQuota={() => checkQuotaMutation.mutate(account.id)}
-              quotaResult={checkQuotaMutation.data}
-              checkingQuota={checkQuotaMutation.isPending}
+              onCheckQuota={() => checkQuota(account.id)}
+              quotaResult={quotaResults[account.id]}
+              checkingQuota={checkingQuotaIds.has(account.id)}
             />
           ))}
         </div>
       )}
     </div>
   );
+}
+
+type QuotaWindow = { label: string; usedPercent: number | null; resetsAt: string | null };
+
+function formatPercent(value: number | null): string {
+  if (value === null || value === undefined) return "N/A";
+  return `${Math.round(value)}%`;
+}
+
+function getPercentColor(usedPercent: number | null): string {
+  if (usedPercent === null) return "bg-gray-400";
+  if (usedPercent >= 95) return "bg-red-500";
+  if (usedPercent >= 80) return "bg-yellow-500";
+  return "bg-green-500";
 }
 
 function AccountCard({
@@ -109,7 +143,7 @@ function AccountCard({
   account: CodexPoolAccount;
   onDelete: () => void;
   onCheckQuota: () => void;
-  quotaResult?: { hasQuota: boolean; error?: string };
+  quotaResult?: { hasQuota: boolean; windows: QuotaWindow[]; error?: string };
   checkingQuota: boolean;
 }) {
   const statusConfig = {
@@ -143,12 +177,31 @@ function AccountCard({
             </p>
           )}
           {quotaResult && (
-            <div className="mt-2 text-sm">
-              {quotaResult.hasQuota ? (
-                <span className="text-green-500">Has quota available</span>
-              ) : (
-                <span className="text-red-500">{quotaResult.error || "No quota available"}</span>
+            <div className="mt-3 space-y-2">
+              {quotaResult.error && !quotaResult.hasQuota && (
+                <span className="text-red-500 text-sm">{quotaResult.error}</span>
               )}
+              {quotaResult.windows.map((window, idx) => (
+                <div key={idx} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">{window.label}</span>
+                    <span className={window.usedPercent !== null && window.usedPercent >= 95 ? "text-red-500" : "text-green-600"}>
+                      {formatPercent(window.usedPercent)} used
+                    </span>
+                  </div>
+                  <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${getPercentColor(window.usedPercent)} transition-all duration-300`}
+                      style={{ width: `${Math.min(window.usedPercent ?? 0, 100)}%` }}
+                    />
+                  </div>
+                  {window.resetsAt && (
+                    <p className="text-xs text-muted-foreground">
+                      Resets: {new Date(window.resetsAt).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>

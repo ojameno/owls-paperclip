@@ -1,12 +1,19 @@
 import path from "node:path";
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import { eq, and, desc, lt, isNull } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { codexAccountPool } from "@paperclipai/db";
-import { readCodexAuthInfo, fetchCodexRpcQuota, type CodexAuthInfo } from "@paperclipai/adapter-codex-local/server";
+import { readCodexAuthInfo, type CodexAuthInfo } from "@paperclipai/adapter-codex-local/server";
 import { logger } from "../middleware/logger.js";
 
 const EXHAUSTED_COOLDOWN_DAYS = 7;
+
+export type QuotaWindowInfo = {
+  label: string;
+  usedPercent: number | null;
+  resetsAt: string | null;
+};
 
 export type CodexPoolAccount = {
   id: string;
@@ -209,7 +216,7 @@ export function createCodexPoolService(db: Db) {
     }
   }
 
-  async function checkAccountQuota(accountId: string): Promise<{ hasQuota: boolean; error?: string }> {
+  async function checkAccountQuota(accountId: string): Promise<{ hasQuota: boolean; windows: QuotaWindowInfo[]; error?: string }> {
     const account = await db
       .select({ codexHomePath: codexAccountPool.codexHomePath, authJson: codexAccountPool.authJson })
       .from(codexAccountPool)
@@ -217,41 +224,100 @@ export function createCodexPoolService(db: Db) {
       .then((rows) => rows[0]);
 
     if (!account || !account.codexHomePath) {
-      return { hasQuota: false, error: "Account not found or no CODEX_HOME" };
+      return { hasQuota: false, windows: [], error: "Account not found or no CODEX_HOME" };
     }
 
     try {
       const authInfo = await readCodexAuthInfo(account.codexHomePath);
       if (!authInfo) {
-        return { hasQuota: false, error: "Could not read auth info" };
+        return { hasQuota: false, windows: [], error: "Could not read auth info" };
       }
 
-      // Temporarily set CODEX_HOME to check quota for this specific account
-      const originalCodexHome = process.env.CODEX_HOME;
-      process.env.CODEX_HOME = account.codexHomePath;
-
-      let quota;
-      try {
-        quota = await fetchCodexRpcQuota();
-      } finally {
-        // Restore original CODEX_HOME
-        if (originalCodexHome !== undefined) {
-          process.env.CODEX_HOME = originalCodexHome;
-        } else {
-          delete process.env.CODEX_HOME;
-        }
-      }
+      // Use HTTP WHAM API with isolated auth (thread-safe)
+      const quota = await fetchCodexQuotaWithAuth(account.codexHomePath);
 
       // Check if any window has available quota (usedPercent < 100 or null means unknown/available)
       const hasAnyQuota = quota.windows.some((w) => w.usedPercent === null || w.usedPercent < 100);
       if (!hasAnyQuota) {
-        return { hasQuota: false, error: "All quota windows exhausted" };
+        return { hasQuota: false, windows: quota.windows, error: "All quota windows exhausted" };
       }
 
-      return { hasQuota: true };
+      return { hasQuota: true, windows: quota.windows };
     } catch (err) {
       logger.warn({ accountId, error: err }, "Failed to check Codex account quota");
-      return { hasQuota: false, error: err instanceof Error ? err.message : String(err) };
+      return { hasQuota: false, windows: [], error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /**
+   * Fetch Codex quota via HTTP WHAM API (same as adapter does).
+   * Thread-safe: uses isolated auth info, no global env changes.
+   */
+  async function fetchCodexQuotaWithAuth(codexHomePath: string): Promise<{ windows: QuotaWindowInfo[] }> {
+    const auth = await readCodexAuthInfo(codexHomePath);
+    if (!auth) throw new Error("Could not read auth info from CODEX_HOME");
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${auth.accessToken}`,
+    };
+    if (auth.accountId) headers["ChatGPT-Account-Id"] = auth.accountId;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const resp = await fetch("https://chatgpt.com/backend-api/wham/usage", {
+        headers,
+        signal: controller.signal,
+      });
+
+      if (!resp.ok) throw new Error(`wham api returned ${resp.status}`);
+
+      const body = (await resp.json()) as {
+        rate_limit?: {
+          primary_window?: { used_percent?: number; limit_window_seconds?: number; reset_at?: string | number };
+          secondary_window?: { used_percent?: number; limit_window_seconds?: number; reset_at?: string | number };
+        };
+      };
+
+      const windows: QuotaWindowInfo[] = [];
+      const rateLimit = body.rate_limit;
+
+      // Helper to format window label based on seconds
+      function formatWindowLabel(seconds: number | null | undefined): string {
+        if (seconds == null) return "limit";
+        const hours = seconds / 3600;
+        if (hours < 6) return "5h limit";
+        if (hours <= 24) return "24h limit";
+        if (hours <= 168) return "7d limit";
+        return `${Math.round(hours / 24)}d limit`;
+      }
+
+      // Only add windows that have valid used_percent data
+      const primary = rateLimit?.primary_window;
+      if (primary?.used_percent != null) {
+        windows.push({
+          label: formatWindowLabel(primary.limit_window_seconds),
+          usedPercent: Math.min(100, Math.round(primary.used_percent < 1 ? primary.used_percent * 100 : primary.used_percent)),
+          resetsAt: typeof primary.reset_at === "number"
+            ? new Date(primary.reset_at * 1000).toISOString()
+            : (primary.reset_at ?? null),
+        });
+      }
+      const secondary = rateLimit?.secondary_window;
+      if (secondary?.used_percent != null) {
+        windows.push({
+          label: formatWindowLabel(secondary.limit_window_seconds),
+          usedPercent: Math.min(100, Math.round(secondary.used_percent < 1 ? secondary.used_percent * 100 : secondary.used_percent)),
+          resetsAt: typeof secondary.reset_at === "number"
+            ? new Date(secondary.reset_at * 1000).toISOString()
+            : (secondary.reset_at ?? null),
+        });
+      }
+
+      return { windows };
+    } finally {
+      clearTimeout(timer);
     }
   }
 

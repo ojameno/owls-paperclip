@@ -24,5 +24,8 @@ export const codexPoolApi = {
   delete: (companyId: string, accountId: string) =>
     api.delete<{ success: true }>(`/companies/${companyId}/codex-pool/${accountId}`),
   checkQuota: (companyId: string, accountId: string) =>
-    api.post<{ hasQuota: boolean; error?: string }>(`/companies/${companyId}/codex-pool/${accountId}/check-quota`, {}),
+    api.post<{ hasQuota: boolean; windows: Array<{ label: string; usedPercent: number | null; resetsAt: string | null }>; error?: string }>(
+      `/companies/${companyId}/codex-pool/${accountId}/check-quota`,
+      {}
+    ),
 };
