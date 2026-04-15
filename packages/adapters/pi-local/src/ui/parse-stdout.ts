@@ -250,7 +250,16 @@ export function parsePiStdoutLine(line: string, ts: string): TranscriptEntry[] {
   if (type === "tool_execution_start") {
     const toolCallId = asString(parsed.toolCallId, `tool-${Date.now()}`);
     const toolName = asString(parsed.toolName, "tool");
-    const args = parsed.args;
+    let args = parsed.args;
+    // Ensure description has a fallback value for bash tool validation
+    if (typeof args === "object" && args !== null && !Array.isArray(args)) {
+      const argsRecord = args as Record<string, unknown>;
+      if (toolName === "bash" && argsRecord.description === undefined) {
+        const command = asString(argsRecord.command, "");
+        argsRecord.description = command || "bash command";
+        args = argsRecord;
+      }
+    }
     
     // Track this tool call for later matching
     pendingToolCalls.set(toolCallId, { toolName, args });

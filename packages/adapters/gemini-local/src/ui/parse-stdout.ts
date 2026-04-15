@@ -107,11 +107,21 @@ function parseAssistantMessage(messageRaw: unknown, ts: string): TranscriptEntry
 
     if (type === "tool_call") {
       const name = asString(part.name, asString(part.tool, "tool"));
+      let input = part.input ?? part.arguments ?? part.args ?? {};
+      // Ensure description has a fallback value for bash tool validation
+      if (typeof input === "object" && input !== null && !Array.isArray(input)) {
+        const inputRecord = input as Record<string, unknown>;
+        if (name === "bash" && inputRecord.description === undefined) {
+          const command = asString(inputRecord.command, "");
+          inputRecord.description = command || "bash command";
+          input = inputRecord;
+        }
+      }
       entries.push({
         kind: "tool_call",
         ts,
         name,
-        input: part.input ?? part.arguments ?? part.args ?? {},
+        input,
       });
       continue;
     }
@@ -157,11 +167,21 @@ function parseTopLevelToolEvent(parsed: Record<string, unknown>, ts: string): Tr
   const payload = asRecord(toolCall[toolName]) ?? {};
 
   if (subtype === "started" || subtype === "start") {
+    let input = payload.args ?? payload.input ?? payload.arguments ?? payload;
+    // Ensure description has a fallback value for bash tool validation
+    if (typeof input === "object" && input !== null && !Array.isArray(input)) {
+      const inputRecord = input as Record<string, unknown>;
+      if (toolName === "bash" && inputRecord.description === undefined) {
+        const command = asString(inputRecord.command, "");
+        inputRecord.description = command || "bash command";
+        input = inputRecord;
+      }
+    }
     return [{
       kind: "tool_call",
       ts,
       name: toolName,
-      input: payload.args ?? payload.input ?? payload.arguments ?? payload,
+      input,
     }];
   }
 

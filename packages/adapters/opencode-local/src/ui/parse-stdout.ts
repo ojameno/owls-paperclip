@@ -45,7 +45,16 @@ function parseToolUse(parsed: Record<string, unknown>, ts: string): TranscriptEn
 
   const toolName = asString(part.tool, "tool");
   const state = asRecord(part.state);
-  const input = state?.input ?? {};
+  let input = state?.input ?? {};
+  // Ensure description has a fallback value for bash tool validation
+  if (typeof input === "object" && input !== null && !Array.isArray(input)) {
+    const inputRecord = input as Record<string, unknown>;
+    if (toolName === "bash" && inputRecord.description === undefined) {
+      const command = asString(inputRecord.command, "");
+      inputRecord.description = command || "bash command";
+      input = inputRecord;
+    }
+  }
   const callEntry: TranscriptEntry = {
     kind: "tool_call",
     ts,

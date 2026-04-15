@@ -67,17 +67,28 @@ export function parseClaudeStdoutLine(line: string, ts: string): TranscriptEntry
         const text = typeof block.thinking === "string" ? block.thinking : "";
         if (text) entries.push({ kind: "thinking", ts, text });
       } else if (blockType === "tool_use") {
+        let input = block.input ?? {};
+        const toolName = typeof block.name === "string" ? block.name : "unknown";
+        // Ensure description has a fallback value for bash tool validation
+        if (typeof input === "object" && input !== null && !Array.isArray(input)) {
+          const inputRecord = input as Record<string, unknown>;
+          if (toolName === "bash" && inputRecord.description === undefined) {
+            const command = typeof inputRecord.command === "string" ? inputRecord.command : "";
+            inputRecord.description = command || "bash command";
+            input = inputRecord;
+          }
+        }
         entries.push({
           kind: "tool_call",
           ts,
-          name: typeof block.name === "string" ? block.name : "unknown",
+          name: toolName,
           toolUseId:
             typeof block.id === "string"
               ? block.id
               : typeof block.tool_use_id === "string"
                 ? block.tool_use_id
                 : undefined,
-          input: block.input ?? {},
+          input,
         });
       }
     }

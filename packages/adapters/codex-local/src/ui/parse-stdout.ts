@@ -61,15 +61,20 @@ function parseCommandExecutionItem(
   const output = asString(item.aggregated_output).replace(/\s+$/, "");
 
   if (phase === "started") {
+    const input: Record<string, unknown> = {
+      id,
+      command: safeCommand,
+    };
+    // Ensure description has a fallback value for bash tool validation
+    if (input.description === undefined) {
+      input.description = safeCommand || "bash command";
+    }
     return [{
       kind: "tool_call",
       ts,
       name: "command_execution",
       toolUseId: id || command || "command_execution",
-      input: {
-        id,
-        command: safeCommand,
-      },
+      input,
     }];
   }
 
@@ -146,12 +151,23 @@ function parseCodexItem(
   }
 
   if (itemType === "tool_use") {
+    let input = item.input ?? {};
+    const toolName = asString(item.name, "unknown");
+    // Ensure description has a fallback value for bash tool validation
+    if (typeof input === "object" && input !== null && !Array.isArray(input)) {
+      const inputRecord = input as Record<string, unknown>;
+      if (toolName === "bash" && inputRecord.description === undefined) {
+        const command = asString(inputRecord.command, "");
+        inputRecord.description = command || "bash command";
+        input = inputRecord;
+      }
+    }
     return [{
       kind: "tool_call",
       ts,
-      name: asString(item.name, "unknown"),
+      name: toolName,
       toolUseId: asString(item.id),
-      input: item.input ?? {},
+      input,
     }];
   }
 

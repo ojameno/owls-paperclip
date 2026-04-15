@@ -35,6 +35,10 @@ import { secretService } from "./secrets.js";
 import { resolveDefaultAgentWorkspaceDir, resolveManagedProjectWorkspaceDir } from "../home-paths.js";
 import { buildHeartbeatRunIssueComment, summarizeHeartbeatRunResultJson } from "./heartbeat-run-summary.js";
 import {
+  loadDefaultAgentInstructionsBundle,
+  resolveDefaultAgentInstructionsBundleRole,
+} from "./default-agent-instructions.js";
+import {
   buildWorkspaceReadyComment,
   cleanupExecutionWorkspaceArtifacts,
   ensureRuntimeServicesForRun,
@@ -1582,6 +1586,23 @@ export function heartbeatService(db: Db) {
 
     const cwd = resolveDefaultAgentWorkspaceDir(agent.id);
     await fs.mkdir(cwd, { recursive: true });
+
+    // Copy CEO memory files for CEO agents
+    if (agent.role === "ceo") {
+      try {
+        const role = resolveDefaultAgentInstructionsBundleRole(agent.role);
+        const bundle = await loadDefaultAgentInstructionsBundle(role);
+        for (const [fileName, content] of Object.entries(bundle)) {
+          if (fileName !== "AGENTS.md") { // Skip AGENTS.md as it's for instructions bundle
+            const filePath = path.join(cwd, fileName);
+            await fs.writeFile(filePath, content, "utf8");
+          }
+        }
+      } catch (err) {
+        logger.warn({ agentId: agent.id, error: err }, "Failed to copy CEO memory files to workspace");
+      }
+    }
+
     const warnings: string[] = [];
     if (sessionCwd) {
       warnings.push(

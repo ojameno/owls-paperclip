@@ -1506,15 +1506,29 @@ export function issueService(db: Db) {
         const issueNumber = company.issueCounter;
         const identifier = `${company.issuePrefix}-${issueNumber}`;
 
+        let resolvedGoalId = resolveIssueGoalId({
+          projectId: issueData.projectId,
+          goalId: issueData.goalId,
+          projectGoalId,
+          defaultGoalId: defaultCompanyGoal?.id ?? null,
+        });
+
+        // Validate that goalId exists in the database
+        if (resolvedGoalId) {
+          const goalExists = await tx
+            .select({ id: goals.id })
+            .from(goals)
+            .where(and(eq(goals.id, resolvedGoalId), eq(goals.companyId, companyId)))
+            .then((rows) => rows[0] ?? null);
+          if (!goalExists) {
+            resolvedGoalId = null;
+          }
+        }
+
         const values = {
           ...issueData,
           originKind: issueData.originKind ?? "manual",
-          goalId: resolveIssueGoalId({
-            projectId: issueData.projectId,
-            goalId: issueData.goalId,
-            projectGoalId,
-            defaultGoalId: defaultCompanyGoal?.id ?? null,
-          }),
+          goalId: resolvedGoalId,
           ...(projectWorkspaceId ? { projectWorkspaceId } : {}),
           ...(executionWorkspaceId ? { executionWorkspaceId } : {}),
           ...(executionWorkspacePreference ? { executionWorkspacePreference } : {}),
@@ -1667,6 +1681,19 @@ export function issueService(db: Db) {
           projectGoalId: nextProjectGoalId,
           defaultGoalId: defaultCompanyGoal?.id ?? null,
         });
+
+        // Validate that goalId exists in the database
+        if (patch.goalId) {
+          const goalExists = await tx
+            .select({ id: goals.id })
+            .from(goals)
+            .where(and(eq(goals.id, patch.goalId), eq(goals.companyId, existing.companyId)))
+            .then((rows) => rows[0] ?? null);
+          if (!goalExists) {
+            patch.goalId = null;
+          }
+        }
+
         const updated = await tx
           .update(issues)
           .set(patch)
